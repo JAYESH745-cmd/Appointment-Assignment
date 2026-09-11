@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A simple appointment board for small teams">
-  <title>{% block title %}Appointment Board{% endblock %}</title>
+  <meta name="description" content="A simple scheduling board for small teams">
+  <title>{% block title %}Appointo{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
@@ -12,9 +12,9 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('board') }}" aria-label="Appointment Board home">
+    <a class="brand" href="{{ url_for('board') }}" aria-label="Appointo home">
       <span class="brand-mark" aria-hidden="true">A</span>
-      <span>Appointment Board</span>
+      <span>Appointo</span>
     </a>
     <a class="button button-primary" href="{{ url_for('new_appointment') }}"><span aria-hidden="true">+</span> Add appointment</a>
   </header>

@@ -1,4 +1,4 @@
-"""Appointment Board — a compact Flask application for a small team."""
+"""Appointo — a compact scheduling application for a small team."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ STATUSES = ("scheduled", "completed", "cancelled")
 def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
-        SECRET_KEY=os.environ.get("APPOINTMENT_BOARD_SECRET", "development-only-secret"),
+        SECRET_KEY=os.environ.get("APPOINTO_SECRET", "development-only-secret"),
         DATABASE=os.path.join(app.instance_path, "appointments.sqlite3"),
     )
     if test_config:
@@ -65,7 +65,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 [
                     (
                         "Design review",
-                        "Review the appointment-board user flow with the product team.",
+                        "Review the Appointo user flow with the product team.",
                         "2026-09-14",
                         "09:30",
                         "10:15",

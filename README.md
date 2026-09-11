@@ -1,6 +1,6 @@
-# Appointment Board
+# Appointo
 
-A lightweight Flask and SQLite appointment board for a small team. It ships with sample appointments so the interface is reviewable on first launch.
+A lightweight Flask and SQLite scheduling board for a small team. It ships with sample appointments so the interface is reviewable on first launch.
 
 ## Run locally
 
