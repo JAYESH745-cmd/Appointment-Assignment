@@ -1,0 +1,278 @@
+"""Appointment Board — a compact Flask application for a small team."""
+
+from __future__ import annotations
+
+import os
+import sqlite3
+from datetime import date, datetime
+from pathlib import Path
+
+from flask import Flask, abort, flash, g, redirect, render_template, request, url_for
+
+
+STATUSES = ("scheduled", "completed", "cancelled")
+
+
+def create_app(test_config: dict | None = None) -> Flask:
+    app = Flask(__name__, instance_relative_config=True)
+    app.config.from_mapping(
+        SECRET_KEY=os.environ.get("APPOINTMENT_BOARD_SECRET", "development-only-secret"),
+        DATABASE=os.path.join(app.instance_path, "appointments.sqlite3"),
+    )
+    if test_config:
+        app.config.update(test_config)
+
+    Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+
+    @app.teardown_appcontext
+    def close_db(_error: BaseException | None = None) -> None:
+        db = g.pop("db", None)
+        if db is not None:
+            db.close()
+
+    def get_db() -> sqlite3.Connection:
+        if "db" not in g:
+            g.db = sqlite3.connect(app.config["DATABASE"])
+            g.db.row_factory = sqlite3.Row
+        return g.db
+
+    def initialise_db() -> None:
+        db = get_db()
+        db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS appointments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                appointment_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled'
+                    CHECK (status IN ('scheduled', 'completed', 'cancelled')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_appointments_date_status
+                ON appointments (appointment_date, status);
+            """
+        )
+        if db.execute("SELECT COUNT(*) FROM appointments").fetchone()[0] == 0:
+            db.executemany(
+                """
+                INSERT INTO appointments
+                    (title, description, appointment_date, start_time, end_time, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        "Design review",
+                        "Review the appointment-board user flow with the product team.",
+                        "2026-09-14",
+                        "09:30",
+                        "10:15",
+                        "scheduled",
+                    ),
+                    (
+                        "Client onboarding",
+                        "Walk the new client through their first-week checklist.",
+                        "2026-09-14",
+                        "11:00",
+                        "12:00",
+                        "completed",
+                    ),
+                    (
+                        "Weekly planning",
+                        "Set priorities and owners for the coming week.",
+                        "2026-09-15",
+                        "14:00",
+                        "14:45",
+                        "cancelled",
+                    ),
+                ],
+            )
+        db.commit()
+
+    def appointment_or_404(appointment_id: int) -> sqlite3.Row:
+        appointment = get_db().execute(
+            "SELECT * FROM appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()
+        if appointment is None:
+            abort(404)
+        return appointment
+
+    def time_slot_is_available(
+        appointment_date: str, start_time: str, end_time: str, appointment_id: int | None = None
+    ) -> bool:
+        """Return false for any overlapping non-cancelled appointment on the same day."""
+        query = """
+            SELECT 1 FROM appointments
+            WHERE appointment_date = ?
+              AND status != 'cancelled'
+              AND start_time < ?
+              AND end_time > ?
+        """
+        params: list[object] = [appointment_date, end_time, start_time]
+        if appointment_id is not None:
+            query += " AND id != ?"
+            params.append(appointment_id)
+        return get_db().execute(query, params).fetchone() is None
+
+    def validate_form(form: dict[str, str], appointment_id: int | None = None) -> list[str]:
+        errors: list[str] = []
+        if not form["title"]:
+            errors.append("A title is required.")
+        elif len(form["title"]) > 100:
+            errors.append("The title must be 100 characters or fewer.")
+        if len(form["description"]) > 500:
+            errors.append("The description must be 500 characters or fewer.")
+
+        valid_date = valid_times = False
+        try:
+            datetime.strptime(form["appointment_date"], "%Y-%m-%d")
+            valid_date = True
+        except ValueError:
+            errors.append("Choose a valid appointment date.")
+        try:
+            start = datetime.strptime(form["start_time"], "%H:%M")
+            end = datetime.strptime(form["end_time"], "%H:%M")
+            valid_times = True
+            if end <= start:
+                errors.append("End time must be after start time.")
+        except ValueError:
+            errors.append("Choose a valid start and end time.")
+
+        if valid_date and valid_times and not errors and not time_slot_is_available(
+            form["appointment_date"], form["start_time"], form["end_time"], appointment_id
+        ):
+            errors.append("That time overlaps an existing active appointment.")
+        return errors
+
+    def form_values(source: sqlite3.Row | None = None) -> dict[str, str]:
+        if source is not None:
+            return {key: source[key] for key in ("title", "description", "appointment_date", "start_time", "end_time")}
+        return {
+            "title": "",
+            "description": "",
+            "appointment_date": date.today().isoformat(),
+            "start_time": "09:00",
+            "end_time": "09:30",
+        }
+
+    @app.template_filter("friendly_date")
+    def friendly_date(value: str) -> str:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%a, %b %-d")
+
+    @app.template_filter("friendly_time")
+    def friendly_time(value: str) -> str:
+        return datetime.strptime(value, "%H:%M").strftime("%-I:%M %p")
+
+    @app.context_processor
+    def expose_today() -> dict[str, str]:
+        return {"today": date.today().isoformat()}
+
+    @app.get("/")
+    def board():
+        selected_date = request.args.get("date", "").strip()
+        selected_status = request.args.get("status", "all").strip().lower()
+        if selected_status not in (*STATUSES, "all"):
+            selected_status = "all"
+
+        clauses, params = [], []
+        if selected_date:
+            try:
+                datetime.strptime(selected_date, "%Y-%m-%d")
+                clauses.append("appointment_date = ?")
+                params.append(selected_date)
+            except ValueError:
+                flash("The date filter was ignored because it is not valid.", "error")
+                selected_date = ""
+        if selected_status != "all":
+            clauses.append("status = ?")
+            params.append(selected_status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        appointments = get_db().execute(
+            f"SELECT * FROM appointments {where} ORDER BY appointment_date, start_time, id", params
+        ).fetchall()
+
+        counts = dict(
+            get_db()
+            .execute("SELECT status, COUNT(*) AS count FROM appointments GROUP BY status")
+            .fetchall()
+        )
+        return render_template(
+            "board.html",
+            appointments=appointments,
+            selected_date=selected_date,
+            selected_status=selected_status,
+            counts=counts,
+        )
+
+    @app.route("/appointments/new", methods=("GET", "POST"))
+    def new_appointment():
+        values = form_values()
+        if request.method == "POST":
+            values = {key: request.form.get(key, "").strip() for key in values}
+            errors = validate_form(values)
+            if not errors:
+                get_db().execute(
+                    """
+                    INSERT INTO appointments (title, description, appointment_date, start_time, end_time)
+                    VALUES (:title, :description, :appointment_date, :start_time, :end_time)
+                    """,
+                    values,
+                )
+                get_db().commit()
+                flash("Appointment added to the board.", "success")
+                return redirect(url_for("board"))
+            for error in errors:
+                flash(error, "error")
+        return render_template("appointment_form.html", values=values, mode="Create", appointment=None)
+
+    @app.route("/appointments/<int:appointment_id>/edit", methods=("GET", "POST"))
+    def edit_appointment(appointment_id: int):
+        appointment = appointment_or_404(appointment_id)
+        values = form_values(appointment)
+        if request.method == "POST":
+            values = {key: request.form.get(key, "").strip() for key in values}
+            errors = validate_form(values, appointment_id)
+            if not errors:
+                get_db().execute(
+                    """
+                    UPDATE appointments
+                    SET title = :title, description = :description, appointment_date = :appointment_date,
+                        start_time = :start_time, end_time = :end_time
+                    WHERE id = :id
+                    """,
+                    {**values, "id": appointment_id},
+                )
+                get_db().commit()
+                flash("Appointment updated.", "success")
+                return redirect(url_for("board"))
+            for error in errors:
+                flash(error, "error")
+        return render_template("appointment_form.html", values=values, mode="Edit", appointment=appointment)
+
+    @app.post("/appointments/<int:appointment_id>/<action>")
+    def change_status(appointment_id: int, action: str):
+        appointment = appointment_or_404(appointment_id)
+        if action not in {"complete", "cancel"}:
+            abort(404)
+        desired_status = "completed" if action == "complete" else "cancelled"
+        if appointment["status"] != "scheduled":
+            flash(f"Only scheduled appointments can be {desired_status}.", "error")
+        else:
+            get_db().execute("UPDATE appointments SET status = ? WHERE id = ?", (desired_status, appointment_id))
+            get_db().commit()
+            flash(f"Appointment marked as {desired_status}.", "success")
+        return redirect(url_for("board"))
+
+    with app.app_context():
+        initialise_db()
+
+    return app
+
+
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(debug=True)

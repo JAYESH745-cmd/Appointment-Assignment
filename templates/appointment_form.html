@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ mode }} appointment · Appointment Board{% endblock %}
+{% block content %}
+  <section class="form-page">
+    <a class="back-link" href="{{ url_for('board') }}">← Back to board</a>
+    <div class="form-heading">
+      <p class="eyebrow">{{ mode|upper }} APPOINTMENT</p>
+      <h1>{% if mode == 'Create' %}Make room for what matters.{% else %}Update the details.{% endif %}</h1>
+      <p>{% if mode == 'Create' %}Add a time that works for the team. We’ll guard against overlapping active appointments.{% else %}Changes are saved immediately once the time slot is available.{% endif %}</p>
+    </div>
+    <form class="appointment-form" method="post" novalidate>
+      <label class="field-full">Title <span class="required">Required</span>
+        <input name="title" maxlength="100" required value="{{ values.title }}" placeholder="e.g. Product walkthrough" autofocus>
+      </label>
+      <label class="field-full">Description <span class="optional">Optional</span>
+        <textarea name="description" maxlength="500" rows="4" placeholder="What should the team know?">{{ values.description }}</textarea>
+      </label>
+      <label>Date <span class="required">Required</span>
+        <input type="date" name="appointment_date" required value="{{ values.appointment_date }}">
+      </label>
+      <div class="time-fields">
+        <label>Start time <span class="required">Required</span>
+          <input type="time" name="start_time" required value="{{ values.start_time }}">
+        </label>
+        <label>End time <span class="required">Required</span>
+          <input type="time" name="end_time" required value="{{ values.end_time }}">
+        </label>
+      </div>
+      <div class="form-footer">
+        <a class="button button-secondary" href="{{ url_for('board') }}">Discard</a>
+        <button class="button button-primary" type="submit">{{ mode }} appointment</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

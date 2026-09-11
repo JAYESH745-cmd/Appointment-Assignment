@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Appointment Board{% endblock %}
+{% block content %}
+  <section class="hero">
+    <div>
+      <p class="eyebrow">TEAM SCHEDULE</p>
+      <h1>Keep the day moving.</h1>
+      <p class="hero-copy">A clear view of every appointment, from first booking to final outcome.</p>
+    </div>
+    <div class="today-note">
+      <span>Today</span>
+      <strong>{{ today|friendly_date }}</strong>
+    </div>
+  </section>
+
+  <section class="summary-grid" aria-label="Appointment summary">
+    <div class="summary-card"><span class="summary-icon amber">◷</span><div><strong>{{ counts.get('scheduled', 0) }}</strong><span>Scheduled</span></div></div>
+    <div class="summary-card"><span class="summary-icon green">✓</span><div><strong>{{ counts.get('completed', 0) }}</strong><span>Completed</span></div></div>
+    <div class="summary-card"><span class="summary-icon gray">×</span><div><strong>{{ counts.get('cancelled', 0) }}</strong><span>Cancelled</span></div></div>
+  </section>
+
+  <section class="toolbar" aria-label="Appointment filters">
+    <div>
+      <p class="eyebrow">APPOINTMENTS</p>
+      <h2>{{ appointments|length }} appointment{{ '' if appointments|length == 1 else 's' }}</h2>
+    </div>
+    <form class="filters" method="get">
+      <label>Date <input type="date" name="date" value="{{ selected_date }}"></label>
+      <label>Status
+        <select name="status">
+          <option value="all" {% if selected_status == 'all' %}selected{% endif %}>All statuses</option>
+          <option value="scheduled" {% if selected_status == 'scheduled' %}selected{% endif %}>Scheduled</option>
+          <option value="completed" {% if selected_status == 'completed' %}selected{% endif %}>Completed</option>
+          <option value="cancelled" {% if selected_status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+        </select>
+      </label>
+      <button class="button button-secondary" type="submit">Filter</button>
+      {% if selected_date or selected_status != 'all' %}<a class="clear-link" href="{{ url_for('board') }}">Clear</a>{% endif %}
+    </form>
+  </section>
+
+  {% if appointments %}
+    <section class="appointment-list" aria-label="Appointments">
+      {% for appointment in appointments %}
+        <article class="appointment-card status-{{ appointment.status }}">
+          <div class="time-block">
+            <strong>{{ appointment.start_time|friendly_time }}</strong>
+            <span>{{ appointment.end_time|friendly_time }}</span>
+          </div>
+          <div class="appointment-main">
+            <div class="card-heading">
+              <div>
+                <p class="date-label">{{ appointment.appointment_date|friendly_date }}</p>
+                <h3>{{ appointment.title }}</h3>
+              </div>
+              <span class="status-pill {{ appointment.status }}">{{ appointment.status }}</span>
+            </div>
+            {% if appointment.description %}<p class="description">{{ appointment.description }}</p>{% endif %}
+          </div>
+          <div class="card-actions">
+            <a class="text-button" href="{{ url_for('edit_appointment', appointment_id=appointment.id) }}">Edit</a>
+            {% if appointment.status == 'scheduled' %}
+              <form method="post" action="{{ url_for('change_status', appointment_id=appointment.id, action='complete') }}">
+                <button class="text-button complete" type="submit">Complete</button>
+              </form>
+              <form method="post" action="{{ url_for('change_status', appointment_id=appointment.id, action='cancel') }}">
+                <button class="text-button cancel" type="submit">Cancel</button>
+              </form>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="empty-state">
+      <div class="empty-glyph">□</div>
+      <h2>No appointments found</h2>
+      <p>Try a different filter or create an appointment to get the board started.</p>
+      <a class="button button-primary" href="{{ url_for('new_appointment') }}">Add appointment</a>
+    </section>
+  {% endif %}
+{% endblock %}
