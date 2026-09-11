@@ -1,20 +1,65 @@
 import tempfile
 import unittest
 
-from app import create_app
+from app import Database, create_app
+
+
+class FakePostgresCursor:
+    def __init__(self):
+        self.executed_many = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def executemany(self, query, params):
+        self.executed_many = (query, params)
+
+
+class FakePostgresConnection:
+    def __init__(self):
+        self.executed = None
+        self.cursor_instance = FakePostgresCursor()
+
+    def execute(self, query, params):
+        self.executed = (query, params)
+
+    def cursor(self):
+        return self.cursor_instance
 
 
 class AppointmentBoardTests(unittest.TestCase):
     def setUp(self):
         self.database = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
         self.database.close()
-        self.app = create_app({"TESTING": True, "DATABASE": self.database.name, "SECRET_KEY": "test"})
+        self.app = create_app(
+            {"TESTING": True, "DATABASE": self.database.name, "DATABASE_URL": "", "SECRET_KEY": "test"}
+        )
         self.client = self.app.test_client()
 
     def test_board_shows_seeded_appointments(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Design review", response.data)
+
+    def test_stylesheet_is_served(self):
+        response = self.client.get("/style.css", buffered=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"--teal", response.data)
+
+    def test_postgres_adapter_uses_psycopg_parameters(self):
+        connection = FakePostgresConnection()
+        database = Database(connection, is_postgres=True)
+        database.execute("SELECT * FROM appointments WHERE id = ?", (7,))
+        database.executemany("INSERT INTO appointments (title) VALUES (?)", [("Review",)])
+
+        self.assertEqual(connection.executed[0], "SELECT * FROM appointments WHERE id = %s")
+        self.assertEqual(
+            connection.cursor_instance.executed_many,
+            ("INSERT INTO appointments (title) VALUES (%s)", [("Review",)]),
+        )
 
     def test_overlapping_active_appointment_is_rejected(self):
         response = self.client.post(
